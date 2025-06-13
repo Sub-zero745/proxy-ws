@@ -1,49 +1,54 @@
 const WebSocket = require('ws');
 const http = require('http');
 
-// Servidor HTTP para manejar el Upgrade a WebSocket
-const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end('🌐 WebSocket proxy is running.\n');
-});
+const VPS_WS_URL = 'ws://5.34.178.157:10000/vpnjantit'; // Cambia por tu VPS y path
 
-// Servidor WebSocket (solo para path /vpnjantit)
+const server = http.createServer();
+
 const wss = new WebSocket.Server({ noServer: true });
 
-wss.on('connection', (clientSocket) => {
-  console.log('✅ Cliente conectado al proxy');
+server.on('upgrade', function upgrade(request, socket, head) {
+  // Solo aceptar upgrades websocket
+  wss.handleUpgrade(request, socket, head, function done(wsClient) {
+    console.log('Cliente WebSocket conectado a proxy (Google Cloud Run)');
 
-  // Conectar a la VPS V2Ray vía WebSocket
-  const vpsSocket = new WebSocket('ws://5.34.178.157:10000/vpnjantit');
+    // Crear conexión cliente WS a VPS
+    const wsVps = new WebSocket(VPS_WS_URL);
 
-  vpsSocket.on('open', () => {
-    console.log('🔗 Conectado a la VPS');
-    
-    // Bidireccional
-    clientSocket.on('message', (msg) => vpsSocket.send(msg));
-    vpsSocket.on('message', (msg) => clientSocket.send(msg));
+    wsVps.on('open', () => {
+      console.log('Conectado a VPS WebSocket');
 
-    clientSocket.on('close', () => vpsSocket.close());
-    vpsSocket.on('close', () => clientSocket.close());
-  });
+      // Pipe bidireccional de mensajes (proxy)
+      wsClient.on('message', message => {
+        wsVps.send(message);
+      });
 
-  vpsSocket.on('error', (err) => {
-    console.error('❌ Error en conexión con la VPS:', err.message);
-    clientSocket.close();
-  });
-});
+      wsVps.on('message', message => {
+        wsClient.send(message);
+      });
 
-server.on('upgrade', (req, socket, head) => {
-  if (req.url === '/vpnjantit') {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit('connection', ws, req);
+      // Manejar cierre desde cliente
+      wsClient.on('close', () => {
+        wsVps.close();
+        console.log('Cliente desconectado');
+      });
+
+      // Manejar cierre desde VPS
+      wsVps.on('close', () => {
+        wsClient.close();
+        console.log('Conexión con VPS cerrada');
+      });
     });
-  } else {
-    socket.destroy();
-  }
+
+    wsVps.on('error', err => {
+      console.error('Error al conectar con VPS:', err.message);
+      wsClient.close();
+    });
+  });
 });
 
-// Puerto 8080 para Cloud Run
-server.listen(8080, () => {
-  console.log('🚀 Proxy WebSocket escuchando en el puerto 8080');
+const PORT = process.env.PORT || 8080;
+
+server.listen(PORT, () => {
+  console.log(`Proxy WebSocket escuchando en puerto ${PORT}`);
 });
