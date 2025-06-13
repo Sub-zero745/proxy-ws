@@ -1,65 +1,69 @@
-const net = require('net');
+const http = require('http');
+const WebSocket = require('ws');
 
-const server = net.createServer(socket => {
-  socket.once('data', data => {
-    const reqStr = data.toString();
+const server = http.createServer((req, res) => {
+  // Verificar si es solicitud WebSocket
+  if (
+    req.headers['upgrade'] &&
+    req.headers['upgrade'].toLowerCase() === 'websocket'
+  ) {
+    // No respondemos aquí, dejar que lo maneje ws
+    return;
+  }
 
-    if (!reqStr.includes('Upgrade: Websocket')) {
-      // Respuesta simple para peticiones HTTP normales
-      const response = [
-        'HTTP/1.1 200 OK',
-        'Content-Type: text/plain',
-        'Content-Length: 15',
-        '\r\n',
-        'Servicio activo\n'
-      ].join('\r\n');
-      socket.write(response);
-      socket.end();
-      return;
-    }
+  // Si no es WebSocket, responder 200 OK (para que Google Cloud Run no dé error)
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('OK');
+});
 
-    const response = [
-      'HTTP/1.1 101 Switching Protocols',
-      'Upgrade: websocket',
-      'Connection: Upgrade',
-      '\r\n'
-    ].join('\r\n');
+const wss = new WebSocket.Server({ noServer: true });
 
-    socket.write(response);
+// Manejo de conexión WebSocket entrante
+wss.on('connection', (clientWs) => {
+  console.log('🌐 Cliente conectado vía WebSocket');
 
-    const ssh = net.connect({ host: '5.34.178.157', port: 22 });
+  // Conexión WebSocket hacia tu VPS
+  const vpsWs = new WebSocket('ws://5.34.178.157:2086');
 
-    let sshBannerReceived = false;
-    let bufferedClientData = [];
+  vpsWs.on('open', () => {
+    console.log('🔗 Conectado a VPS WebSocket');
 
-    // Capturar datos SSH (banner)
-    ssh.on('data', data => {
-      if (!sshBannerReceived) {
-        sshBannerReceived = true;
-        // Enviar banner SSH al cliente
-        socket.write(data);
-        // Ahora reenviar los datos del cliente que quedaron en buffer
-        bufferedClientData.forEach(chunk => ssh.write(chunk));
-        bufferedClientData = [];
-        // A partir de ahora, pipe normal
-        socket.on('data', chunk => ssh.write(chunk));
-      } else {
-        socket.write(data);
+    // Cliente -> VPS
+    clientWs.on('message', (msg) => {
+      if (vpsWs.readyState === WebSocket.OPEN) {
+        vpsWs.send(msg);
       }
     });
 
-    ssh.on('close', () => socket.end());
-    ssh.on('error', () => {});
-    socket.on('close', () => ssh.end());
-    socket.on('error', () => {});
-
-    // Antes de recibir el banner SSH, guardar datos del cliente en buffer
-    socket.on('data', data => {
-      if (!sshBannerReceived) {
-        bufferedClientData.push(data);
+    // VPS -> Cliente
+    vpsWs.on('message', (msg) => {
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(msg);
       }
     });
   });
+
+  // Cierre y errores
+  const closeAll = () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+    if (vpsWs.readyState === WebSocket.OPEN) vpsWs.close();
+  };
+
+  clientWs.on('close', closeAll);
+  clientWs.on('error', closeAll);
+  vpsWs.on('close', closeAll);
+  vpsWs.on('error', closeAll);
 });
 
-server.listen(8080);
+// Enlace de HTTP con WebSocket
+server.on('upgrade', (req, socket, head) => {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+});
+
+// Iniciar servidor
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+  console.log(`✅ Proxy WebSocket escuchando en el puerto ${PORT}`);
+});
