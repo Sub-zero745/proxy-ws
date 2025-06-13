@@ -5,6 +5,15 @@ const server = net.createServer(socket => {
     const reqStr = data.toString();
 
     if (!reqStr.includes('Upgrade: Websocket')) {
+      // Respuesta simple para peticiones HTTP normales
+      const response = [
+        'HTTP/1.1 200 OK',
+        'Content-Type: text/plain',
+        'Content-Length: 15',
+        '\r\n',
+        'Servicio activo\n'
+      ].join('\r\n');
+      socket.write(response);
       socket.end();
       return;
     }
