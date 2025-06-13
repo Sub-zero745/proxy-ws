@@ -16,7 +16,7 @@ wss.on('connection', clientSocket => {
   console.log('🟢 Cliente conectado (Google Cloud Run)');
 
   // Conectar a tu VPS por WebSocket (puerto 2086)
-  const targetSocket = new WebSocket('ws://5.34.178.157:2086');
+  const targetSocket = new WebSocket('ws://199.195.249.27:80');
 
   targetSocket.on('open', () => {
     console.log('🔗 Conectado al WebSocket de la VPS');
