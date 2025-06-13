@@ -1,69 +1,45 @@
 const http = require('http');
 const WebSocket = require('ws');
 
+// Servidor HTTP que escucha solicitudes WebSocket
 const server = http.createServer((req, res) => {
-  // Verificar si es solicitud WebSocket
-  if (
-    req.headers['upgrade'] &&
-    req.headers['upgrade'].toLowerCase() === 'websocket'
-  ) {
-    // No respondemos aquí, dejar que lo maneje ws
-    return;
+  if (req.url === '/') {
+    res.writeHead(200);
+    res.end('OK');
   }
-
-  // Si no es WebSocket, responder 200 OK (para que Google Cloud Run no dé error)
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('OK');
 });
 
-const wss = new WebSocket.Server({ noServer: true });
+// Servidor WebSocket en el puerto 8080
+const wss = new WebSocket.Server({ server });
 
-// Manejo de conexión WebSocket entrante
-wss.on('connection', (clientWs) => {
-  console.log('🌐 Cliente conectado vía WebSocket');
+wss.on('connection', clientSocket => {
+  console.log('🟢 Cliente conectado (Google Cloud Run)');
 
-  // Conexión WebSocket hacia tu VPS
-  const vpsWs = new WebSocket('ws://5.34.178.157:2086');
+  // Conectar a tu VPS por WebSocket (puerto 2086)
+  const targetSocket = new WebSocket('ws://5.34.178.157:2086');
 
-  vpsWs.on('open', () => {
-    console.log('🔗 Conectado a VPS WebSocket');
+  targetSocket.on('open', () => {
+    console.log('🔗 Conectado al WebSocket de la VPS');
 
-    // Cliente -> VPS
-    clientWs.on('message', (msg) => {
-      if (vpsWs.readyState === WebSocket.OPEN) {
-        vpsWs.send(msg);
-      }
+    // Redirección cliente → VPS
+    clientSocket.on('message', data => {
+      targetSocket.send(data);
     });
 
-    // VPS -> Cliente
-    vpsWs.on('message', (msg) => {
-      if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(msg);
-      }
+    // Redirección VPS → cliente
+    targetSocket.on('message', data => {
+      clientSocket.send(data);
     });
   });
 
-  // Cierre y errores
-  const closeAll = () => {
-    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
-    if (vpsWs.readyState === WebSocket.OPEN) vpsWs.close();
-  };
+  // Manejo de errores y cierre
+  clientSocket.on('close', () => targetSocket.close());
+  targetSocket.on('close', () => clientSocket.close());
 
-  clientWs.on('close', closeAll);
-  clientWs.on('error', closeAll);
-  vpsWs.on('close', closeAll);
-  vpsWs.on('error', closeAll);
+  clientSocket.on('error', () => {});
+  targetSocket.on('error', () => {});
 });
 
-// Enlace de HTTP con WebSocket
-server.on('upgrade', (req, socket, head) => {
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req);
-  });
-});
-
-// Iniciar servidor
-const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => {
-  console.log(`✅ Proxy WebSocket escuchando en el puerto ${PORT}`);
+server.listen(8080, () => {
+  console.log('🚀 Proxy WebSocket escuchando en el puerto 8080');
 });
