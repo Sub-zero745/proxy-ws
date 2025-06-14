@@ -1,7 +1,7 @@
 const WebSocket = require('ws');
 const http = require('http');
 
-const VPS_WS_URL = 'ws://5.34.178.157:2086/vpnjantit'; // Cambia por tu VPS y path
+const VPS_WS_URL = 'ws://5.34.178.157:10000/vpnjantit'; // Cambia por tu VPS y path
 
 const server = http.createServer();
 
